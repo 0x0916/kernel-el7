@@ -8,6 +8,6 @@
 
 等等。
 
-本项目基于http://elrepo.org/，在其基础上进行了扩展，满足特定的需求。
+本项目基于[http://elrepo.org/](http://elrepo.org/)，在其基础上进行了扩展，满足特定的需求。
 
 
