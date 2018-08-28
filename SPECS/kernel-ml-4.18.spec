@@ -20,6 +20,13 @@
 %define with_perf    %{?_without_perf:    0} %{?!_without_perf:    1}
 # tools
 %define with_tools   %{?_without_tools:   0} %{?!_without_tools:   1}
+# kernel-debuginfo
+%define with_debuginfo %{?_without_debuginfo: 0} %{?!_without_debuginfo: 1}
+
+%if !%{with_debuginfo}
+%define _enable_debug_packages 0
+%endif
+%define debuginfodir /usr/lib/debug
 
 # These architectures install vdso/ directories.
 %define vdso_arches i686 x86_64
@@ -37,6 +44,7 @@
 %define with_headers 0
 %define with_perf 0
 %define with_tools 0
+%define with_debuginfo 0
 %endif
 
 %ifarch i686
@@ -60,7 +68,7 @@
 %endif
 
 # Set pkg_release.
-%define pkg_release 1%{?buildid}%{?dist}
+%define pkg_release wl%{?buildid}%{?dist}
 
 #
 # Three sets of minimum package version requirements in the form of Conflicts.
@@ -265,6 +273,14 @@ This package contains the development files for the tools/ directory
 libraries, derived from the kernel source.
 %endif
 
+%if %{with_debuginfo}
+%package -n %{name}-debuginfo
+Summary: Kernel source files used by %{name}-debuginfo packages
+Group: Development/Debug
+%description -n %{name}-debuginfo
+This package provides debug information for kernel-%{version}-%{release}.
+%endif
+
 # Disable the building of the debug package(s).
 %define debug_package %{nil}
 
@@ -296,6 +312,18 @@ done
 popd > /dev/null
 
 %build
+
+%if %{with_debuginfo}
+# This override tweaks the kernel makefiles so that we run debugedit on an
+# object before embedding it.  When we later run find-debuginfo.sh, it will
+# run debugedit again.  The edits it does change the build ID bits embedded
+# in the stripped object, but repeating debugedit is a no-op.  We do it
+# beforehand to get the proper final build ID bits into the embedded image.
+# This affects the vDSO images in vmlinux, and the vmlinux image in bzImage.
+export AFTER_LINK=\
+'sh -xc "/usr/lib/rpm/debugedit -b $$RPM_BUILD_DIR -d /usr/src/debug -i $@"'
+%endif
+
 BuildKernel() {
     Flavour=$1
 
@@ -317,6 +345,11 @@ BuildKernel() {
     %{__make} -s ARCH=%{buildarch} %{?_smp_mflags} modules
 
     # Install the results into the RPM_BUILD_ROOT directory.
+%if %{with_debuginfo}
+    %{__mkdir_p} $RPM_BUILD_ROOT%{debuginfodir}/boot
+    %{__install} -m 644 System.map $RPM_BUILD_ROOT%{debuginfodir}/boot/System.map-%{KVRFA}
+%endif
+
     %{__mkdir_p} $RPM_BUILD_ROOT/boot
     %{__install} -m 644 .config $RPM_BUILD_ROOT/boot/config-%{KVRFA}
     %{__install} -m 644 System.map $RPM_BUILD_ROOT/boot/System.map-%{KVRFA}
@@ -426,6 +459,13 @@ hwcap 1 nosegneg"
     touch -r $RPM_BUILD_ROOT/lib/modules/%{KVRFA}/build/Makefile $RPM_BUILD_ROOT/lib/modules/%{KVRFA}/build/include/generated/autoconf.h
     touch -r $RPM_BUILD_ROOT/lib/modules/%{KVRFA}/build/Makefile $RPM_BUILD_ROOT/lib/modules/%{KVRFA}/build/include/generated/uapi/linux/version.h
 
+    #
+    # save the vmlinux file for kernel debugging into the kernel-debuginfo rpm
+    #
+%if %{with_debuginfo}
+    %{__mkdir_p} $RPM_BUILD_ROOT%{debuginfodir}/lib/modules/%{KVRFA}
+    %{__cp} vmlinux $RPM_BUILD_ROOT%{debuginfodir}/lib/modules/%{KVRFA}
+%endif
     # Remove any 'left-over' .cmd files.
     /usr/bin/find $RPM_BUILD_ROOT/lib/modules/%{KVRFA}/build -type f -name '*.cmd' | xargs --no-run-if-empty %{__rm} -f
 
@@ -752,6 +792,12 @@ fi
 %{_includedir}/cpufreq.h
 %{_includedir}/cpuidle.h
 %endif
+%endif
+
+%if %{with_debuginfo}
+%files -n %{name}-debuginfo
+%{debuginfodir}/boot/System.map-%{version}-%{release}.%{_target_cpu}
+%{debuginfodir}/lib/modules/%{version}-%{release}.%{_target_cpu}/vmlinux
 %endif
 
 %changelog
